@@ -634,6 +634,82 @@ function computeAndRender(pfx, cap, infA, cavA, arcA, vals, teams) {
   return {usedInf:totI, usedCav:totC, usedArc:totA};
 }
 
+// ── Sauvegarde (localStorage + cookie fallback) ──
+const SAVE_KEY = 'kingshot-bear-calc';
+
+function storageSet(key, val) {
+  // Try localStorage first
+  try { localStorage.setItem(key, val); return; } catch(e) {}
+  // Cookie fallback (works on file://)
+  try {
+    const exp = new Date(Date.now() + 365*24*60*60*1000).toUTCString();
+    document.cookie = encodeURIComponent(key) + '=' + encodeURIComponent(val) + '; expires=' + exp + '; path=/; SameSite=Lax';
+  } catch(e) {}
+}
+
+function storageGet(key) {
+  // Try localStorage first
+  try {
+    const v = localStorage.getItem(key);
+    if (v !== null) return v;
+  } catch(e) {}
+  // Cookie fallback
+  try {
+    const match = document.cookie.split(';').map(c => c.trim()).find(c => c.startsWith(encodeURIComponent(key) + '='));
+    if (match) return decodeURIComponent(match.split('=').slice(1).join('='));
+  } catch(e) {}
+  return null;
+}
+
+function storageRemove(key) {
+  try { localStorage.removeItem(key); } catch(e) {}
+  try { document.cookie = encodeURIComponent(key) + '=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; SameSite=Lax'; } catch(e) {}
+}
+
+function saveData() {
+  storageSet(SAVE_KEY, JSON.stringify({
+    inf:    document.getElementById('inf').value,
+    cav:    document.getElementById('cav').value,
+    arc:    document.getElementById('arc').value,
+    capL:   document.getElementById('cap-l').value,
+    capJ:   document.getElementById('cap-j').value,
+    pctLInf: document.getElementById('l-pct-inf').value,
+    pctLCav: document.getElementById('l-pct-cav').value,
+    pctLArc: document.getElementById('l-pct-arc').value,
+    pctJInf: document.getElementById('j-pct-inf').value,
+    pctJCav: document.getElementById('j-pct-cav').value,
+    pctJArc: document.getElementById('j-pct-arc').value,
+    jTeams:  jTeams,
+    mode:    currentMode,
+    lang:    lang,
+  }));
+}
+
+function loadData() {
+  try {
+    const raw = storageGet(SAVE_KEY);
+    if (!raw) return false;
+    const d = JSON.parse(raw);
+    ['inf','cav','arc'].forEach(k => { if(d[k]) document.getElementById(k).value = d[k]; });
+    if (d.capL) document.getElementById('cap-l').value = d.capL;
+    if (d.capJ) document.getElementById('cap-j').value = d.capJ;
+    const li=parseInt(d.pctLInf)||10, lc=parseInt(d.pctLCav)||10, la=parseInt(d.pctLArc)||80;
+    const ji=parseInt(d.pctJInf)||10, jc=parseInt(d.pctJCav)||10, ja=parseInt(d.pctJArc)||80;
+    document.getElementById('l-pct-inf').value = li;
+    document.getElementById('l-pct-cav').value = lc;
+    document.getElementById('l-pct-arc').value = la;
+    document.getElementById('j-pct-inf').value = ji;
+    document.getElementById('j-pct-cav').value = jc;
+    document.getElementById('j-pct-arc').value = ja;
+    updateRatioBars('l', {inf:li, cav:lc, arc:la});
+    updateRatioBars('j', {inf:ji, cav:jc, arc:ja});
+    updateActivePreset('l', li, lc, la);
+    updateActivePreset('j', ji, jc, ja);
+    if (d.jTeams) { jTeams=parseInt(d.jTeams); document.getElementById('j-teams-val').textContent=jTeams; }
+    return { lang: d.lang, mode: d.mode };
+  } catch(e) { return false; }
+}
+
 function calcAll() {
   const infT=parseInt(document.getElementById('inf').value)||0;
   const cavT=parseInt(document.getElementById('cav').value)||0;
@@ -664,59 +740,7 @@ function resetAll() {
   jTeams=1; document.getElementById('j-teams-val').textContent='1';
   setPreset('l',10,10,80); setPreset('j',10,10,80);
   setMode('leader');
-  try { localStorage.removeItem(SAVE_KEY); } catch(e) {}
-}
-
-// ── LocalStorage save/load ──
-const SAVE_KEY = 'kingshot-bear-calc';
-
-function saveData() {
-  try {
-    localStorage.setItem(SAVE_KEY, JSON.stringify({
-      inf:    document.getElementById('inf').value,
-      cav:    document.getElementById('cav').value,
-      arc:    document.getElementById('arc').value,
-      capL:   document.getElementById('cap-l').value,
-      capJ:   document.getElementById('cap-j').value,
-      pctLInf: document.getElementById('l-pct-inf').value,
-      pctLCav: document.getElementById('l-pct-cav').value,
-      pctLArc: document.getElementById('l-pct-arc').value,
-      pctJInf: document.getElementById('j-pct-inf').value,
-      pctJCav: document.getElementById('j-pct-cav').value,
-      pctJArc: document.getElementById('j-pct-arc').value,
-      jTeams:  jTeams,
-      mode:    currentMode,
-      lang:    lang,
-    }));
-  } catch(e) {}
-}
-
-function loadData() {
-  try {
-    const raw = localStorage.getItem(SAVE_KEY);
-    if (!raw) return false;
-    const d = JSON.parse(raw);
-    // Troops & caps
-    ['inf','cav','arc'].forEach(k => { if(d[k]) document.getElementById(k).value = d[k]; });
-    if (d.capL) document.getElementById('cap-l').value = d.capL;
-    if (d.capJ) document.getElementById('cap-j').value = d.capJ;
-    // Ratios
-    const li = parseInt(d.pctLInf)||10, lc = parseInt(d.pctLCav)||10, la = parseInt(d.pctLArc)||80;
-    const ji = parseInt(d.pctJInf)||10, jc = parseInt(d.pctJCav)||10, ja = parseInt(d.pctJArc)||80;
-    document.getElementById('l-pct-inf').value = li;
-    document.getElementById('l-pct-cav').value = lc;
-    document.getElementById('l-pct-arc').value = la;
-    document.getElementById('j-pct-inf').value = ji;
-    document.getElementById('j-pct-cav').value = jc;
-    document.getElementById('j-pct-arc').value = ja;
-    updateRatioBars('l', {inf:li, cav:lc, arc:la});
-    updateRatioBars('j', {inf:ji, cav:jc, arc:ja});
-    updateActivePreset('l', li, lc, la);
-    updateActivePreset('j', ji, jc, ja);
-    // Teams
-    if (d.jTeams) { jTeams = parseInt(d.jTeams); document.getElementById('j-teams-val').textContent = jTeams; }
-    return { lang: d.lang, mode: d.mode };
-  } catch(e) { return false; }
+  storageRemove(SAVE_KEY);
 }
 
 // Init
