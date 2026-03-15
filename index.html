@@ -665,10 +665,70 @@ function resetAll() {
   setMode('leader');
 }
 
+// ── LocalStorage save/load ──
+const SAVE_KEY = 'kingshot-bear-calc';
+
+function saveData() {
+  const data = {
+    inf: document.getElementById('inf').value,
+    cav: document.getElementById('cav').value,
+    arc: document.getElementById('arc').value,
+    capL: document.getElementById('cap-l').value,
+    capJ: document.getElementById('cap-j').value,
+    pctLInf: document.getElementById('l-pct-inf').value,
+    pctLCav: document.getElementById('l-pct-cav').value,
+    pctLArc: document.getElementById('l-pct-arc').value,
+    pctJInf: document.getElementById('j-pct-inf').value,
+    pctJCav: document.getElementById('j-pct-cav').value,
+    pctJArc: document.getElementById('j-pct-arc').value,
+    jTeams: jTeams,
+    mode: currentMode,
+    lang: lang,
+  };
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(data)); } catch(e) {}
+}
+
+function loadData() {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) return;
+    const d = JSON.parse(raw);
+    if (d.inf)    document.getElementById('inf').value    = d.inf;
+    if (d.cav)    document.getElementById('cav').value    = d.cav;
+    if (d.arc)    document.getElementById('arc').value    = d.arc;
+    if (d.capL)   document.getElementById('cap-l').value  = d.capL;
+    if (d.capJ)   document.getElementById('cap-j').value  = d.capJ;
+    if (d.pctLInf) document.getElementById('l-pct-inf').value = d.pctLInf;
+    if (d.pctLCav) document.getElementById('l-pct-cav').value = d.pctLCav;
+    if (d.pctLArc) document.getElementById('l-pct-arc').value = d.pctLArc;
+    if (d.pctJInf) document.getElementById('j-pct-inf').value = d.pctJInf;
+    if (d.pctJCav) document.getElementById('j-pct-cav').value = d.pctJCav;
+    if (d.pctJArc) document.getElementById('j-pct-arc').value = d.pctJArc;
+    if (d.jTeams)  { jTeams = parseInt(d.jTeams); document.getElementById('j-teams-val').textContent = jTeams; }
+    // update ratio bars
+    updateRatioBars('l', { inf: parseInt(d.pctLInf)||10, cav: parseInt(d.pctLCav)||10, arc: parseInt(d.pctLArc)||80 });
+    updateRatioBars('j', { inf: parseInt(d.pctJInf)||10, cav: parseInt(d.pctJCav)||10, arc: parseInt(d.pctJArc)||80 });
+    updateActivePreset('l', parseInt(d.pctLInf)||10, parseInt(d.pctLCav)||10, parseInt(d.pctLArc)||80);
+    updateActivePreset('j', parseInt(d.pctJInf)||10, parseInt(d.pctJCav)||10, parseInt(d.pctJArc)||80);
+    if (d.lang)   setLang(d.lang);
+    if (d.mode)   setMode(d.mode);
+  } catch(e) {}
+}
+
+// Patch calcAll to auto-save on every change
+const _calcAll = calcAll;
+calcAll = function() { _calcAll(); saveData(); };
+
+// Patch resetAll to also clear localStorage
+const _resetAll = resetAll;
+resetAll = function() { _resetAll(); try { localStorage.removeItem(SAVE_KEY); } catch(e) {} };
+
 // Init
 setLang('fr');
 setPreset('l',10,10,80);
 setPreset('j',10,10,80);
+loadData();
+calcAll();
 </script>
 </body>
 </html>
