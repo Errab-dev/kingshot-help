@@ -499,7 +499,7 @@ function setLang(l) {
 
 function setMode(mode) {
   currentMode = mode;
-  const maxTeams = mode === 'leader' ? 5 : 6;
+  const maxTeams = mode === 'leader' ? 6 : 6;
   if (jTeams > maxTeams) { jTeams = maxTeams; document.getElementById('j-teams-val').textContent = jTeams; }
   const ls = document.getElementById('leader-section');
   const bl = document.getElementById('btn-mode-leader');
@@ -565,7 +565,7 @@ function updateActivePreset(p, i, c, a) {
 }
 
 function changeTeams(delta) {
-  const maxTeams = currentMode === 'leader' ? 5 : 6;
+  const maxTeams = currentMode === 'leader' ? 6 : 6;
   jTeams = Math.max(1, Math.min(maxTeams, jTeams+delta));
   document.getElementById('j-teams-val').textContent = jTeams;
   calcAll();
@@ -748,7 +748,7 @@ function autoFill() {
     msg.classList.add('show'); return;
   }
 
-  const maxJoiners = currentMode === 'leader' ? 5 : 6;
+  const maxJoiners = currentMode === 'leader' ? 6 : 6;
 
   // ── Real bear damage formula (from kingshotguides.com) ──
   // damage = sqrt(n * 5000) * (base_atk * 0.125) / 8.333 / 100 * bonus * 10 rounds
