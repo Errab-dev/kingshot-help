@@ -23,9 +23,9 @@
   header .by{margin-top:6px;font-size:.72rem;color:#3d5068;letter-spacing:2px;font-family:'Rajdhani',sans-serif;font-weight:600;}
 
   /* Lang toggle */
-  .lang-toggle{display:flex;justify-content:flex-end;gap:6px;margin-bottom:10px;}
-  .lang-btn{padding:4px 11px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--muted);
-    font-family:'Rajdhani',sans-serif;font-size:.8rem;font-weight:700;letter-spacing:1px;cursor:pointer;transition:all .15s;}
+  .lang-toggle{display:flex;justify-content:flex-end;gap:6px;margin-bottom:12px;}
+  .lang-btn{padding:5px 14px;border-radius:20px;border:1px solid var(--border);background:var(--surface);
+    color:var(--muted);font-family:'Rajdhani',sans-serif;font-size:.8rem;font-weight:700;letter-spacing:2px;cursor:pointer;transition:all .15s;}
   .lang-btn.active{background:rgba(74,158,255,.12);border-color:var(--accent);color:var(--accent);}
 
   /* Mode toggle */
@@ -148,6 +148,22 @@
 
   .sep{border-bottom:1px solid var(--border);margin:12px 0;}
   .leader-section.hidden{display:none;}
+  .btn-autofill{
+    display:flex;align-items:center;justify-content:center;gap:8px;
+    width:100%;padding:12px;margin-bottom:10px;
+    background:linear-gradient(135deg,rgba(74,158,255,.15),rgba(123,111,255,.15));
+    border:1px solid rgba(74,158,255,.4);border-radius:10px;color:var(--accent);
+    font-family:'Exo 2',sans-serif;font-size:.88rem;font-weight:700;
+    cursor:pointer;transition:all .2s;letter-spacing:.5px;}
+  .btn-autofill:hover{
+    background:linear-gradient(135deg,rgba(74,158,255,.25),rgba(123,111,255,.25));
+    border-color:var(--accent);transform:translateY(-1px);
+    box-shadow:0 4px 16px rgba(74,158,255,.2);}
+  .autofill-result{
+    display:none;padding:10px 13px;margin-bottom:10px;
+    background:rgba(86,211,100,.07);border:1px solid rgba(86,211,100,.25);
+    border-radius:8px;font-size:.8rem;color:var(--success);line-height:1.6;}
+  .autofill-result.show{display:block;}
   .btn-reset{display:block;width:100%;padding:10px;margin-top:8px;background:transparent;border:1px dashed var(--border);border-radius:8px;
     color:var(--muted);font-family:'Exo 2',sans-serif;font-size:.8rem;cursor:pointer;transition:all .2s;letter-spacing:.5px;}
   .btn-reset:hover{border-color:var(--warn);color:var(--warn);}
@@ -163,9 +179,9 @@
 </header>
 
 <div class="lang-toggle">
-  <button class="lang-btn active" onclick="setLang('fr')">🇫🇷 FR</button>
-  <button class="lang-btn" onclick="setLang('en')">🇬🇧 EN</button>
-  <button class="lang-btn" onclick="setLang('es')">🇪🇸 ES</button>
+  <button class="lang-btn active" onclick="setLang('fr')">FR</button>
+  <button class="lang-btn" onclick="setLang('en')">EN</button>
+  <button class="lang-btn" onclick="setLang('es')">ES</button>
 </div>
 
 <div class="mode-toggle">
@@ -366,6 +382,8 @@
   </div>
 </div>
 
+<button class="btn-autofill" onclick="autoFill()">✨ <span data-i18n="autoFill">Auto-remplissage optimal</span></button>
+<div class="autofill-result" id="autofill-result"></div>
 <button class="btn-reset" onclick="resetAll()"><span data-i18n="reset"></span></button>
 
 <script>
@@ -394,6 +412,9 @@ const T = {
     totalSquad:'TOTAL TEAM',
     sqLabel:'Esc.',
     totalRatio:'Total ratios :',
+    autoFill:'Auto-remplissage optimal',
+    autoFillResult:'✅ Optimisation appliquée',
+    autoFillNoCap:'Renseigne la capacité descouade et tes troupes en premier',
     empty:'Remplis les champs ci-dessus',
   },
   en: {
@@ -419,6 +440,9 @@ const T = {
     totalSquad:'TOTAL SQUAD',
     sqLabel:'Eq.',
     totalRatio:'Total ratios:',
+    autoFill:'Optimal Auto-fill',
+    autoFillResult:'✅ Optimization applied',
+    autoFillNoCap:'First enter squad capacity and your troops',
     empty:'Fill in the fields above',
   },
   es: {
@@ -444,6 +468,9 @@ const T = {
     totalSquad:'TOTAL EQUIPO',
     sqLabel:'Esc.',
     totalRatio:'Total ratios:',
+    autoFill:'Auto-completar óptimo',
+    autoFillResult:'✅ Optimización aplicada',
+    autoFillNoCap:'Primero introduce la capacidad de escuadra y tus tropas',
     empty:'Rellena los campos de arriba',
   }
 };
@@ -709,6 +736,127 @@ function loadData() {
     return { lang: d.lang, mode: d.mode };
   } catch(e) { return false; }
 }
+
+function autoFill() {
+  const infTotal = parseInt(document.getElementById('inf').value)||0;
+  const cavTotal = parseInt(document.getElementById('cav').value)||0;
+  const arcTotal = parseInt(document.getElementById('arc').value)||0;
+  const capL = parseInt(document.getElementById('cap-l').value)||0;
+  const capJ = parseInt(document.getElementById('cap-j').value)||0;
+
+  if ((!capL && !capJ) || (!infTotal && !cavTotal && !arcTotal)) {
+    const msg = document.getElementById('autofill-result');
+    msg.textContent = t().autoFillNoCap;
+    msg.classList.add('show');
+    return;
+  }
+
+  // ── Core optimizer: given stock + cap, find best ratio ──
+  function optimize(inf, cav, arc, cap) {
+    if (!cap || (!inf && !cav && !arc)) return null;
+    const MIN_INF_ABS = 5000;
+    let best = null;
+
+    for (let pI = 1; pI <= 20; pI++) {
+      for (let pC = 1; pC <= 30; pC++) {
+        const pA = 100 - pI - pC;
+        if (pA < 50) continue;
+
+        const sqI = Math.round(cap * pI / 100);
+        const sqC = Math.round(cap * pC / 100);
+        const sqA = cap - sqI - sqC;
+
+        if (sqI < MIN_INF_ABS) continue;
+        if (sqA <= 0 || sqC <= 0) continue;
+
+        const maxByI = Math.floor(inf / sqI);
+        const maxByC = Math.floor(cav / sqC);
+        const maxByA = Math.floor(arc / sqA);
+        const squads = Math.max(1, Math.min(maxByI, maxByC, maxByA));
+        const canFull = (maxByI >= 1 && maxByC >= 1 && maxByA >= 1);
+
+        const arcUsed = canFull ? sqA * squads : Math.min(sqA, arc);
+        const totalUsed = canFull
+          ? (sqI + sqC + sqA) * squads
+          : Math.min(sqI, inf) + Math.min(sqC, cav) + Math.min(sqA, arc);
+
+        const score = canFull ? squads * 1e9 + arcUsed : arcUsed;
+
+        if (!best || score > best.score) {
+          best = { pI, pC, pA, sqI, sqC, sqA, squads: canFull ? squads : 1, canFull, score, totalUsed };
+        }
+      }
+    }
+    return best || { pI:1, pC:10, pA:89, sqI:Math.round(cap*0.01), sqC:Math.round(cap*0.1), sqA:cap-Math.round(cap*0.01)-Math.round(cap*0.1), squads:1, canFull:false, totalUsed:0, score:0 };
+  }
+
+  function applyRatio(pfx, best) {
+    document.getElementById(pfx+'-pct-inf').value = best.pI;
+    document.getElementById(pfx+'-pct-cav').value = best.pC;
+    document.getElementById(pfx+'-pct-arc').value = best.pA;
+    updateRatioBars(pfx, {inf:best.pI, cav:best.pC, arc:best.pA});
+    updateActivePreset(pfx, best.pI, best.pC, best.pA);
+  }
+
+  const total = infTotal + cavTotal + arcTotal;
+  let msgLines = [];
+
+  // ── STEP 1 : optimize leader (always 1 squad) ──
+  if (currentMode === 'leader' && capL > 0) {
+    const bestL = optimize(infTotal, cavTotal, arcTotal, capL);
+    if (bestL) {
+      applyRatio('l', bestL);
+      const pctL = total > 0 ? Math.round(bestL.totalUsed / total * 100) : 0;
+      msgLines.push('<strong style="color:var(--leader)">Leader</strong> : ratio <strong>'
+        + bestL.pI+'/'+bestL.pC+'/'+bestL.pA
+        + '</strong> &middot; <strong>' + pctL + '%</strong> des troupes');
+
+      // ── STEP 2 : remaining stock for joiner ──
+      if (capJ > 0) {
+        const infRem = Math.max(0, infTotal - bestL.sqI);
+        const cavRem = Math.max(0, cavTotal - bestL.sqC);
+        const arcRem = Math.max(0, arcTotal - bestL.sqA);
+        const remTotal = infRem + cavRem + arcRem;
+
+        const bestJ = optimize(infRem, cavRem, arcRem, capJ);
+        if (bestJ) {
+          applyRatio('j', bestJ);
+          if (bestJ.squads > 1) {
+            jTeams = bestJ.squads;
+            document.getElementById('j-teams-val').textContent = jTeams;
+          }
+          const pctJ = total > 0 ? Math.round(bestJ.totalUsed / total * 100) : 0;
+          msgLines.push('<strong style="color:var(--joiner)">Joiner</strong> : ratio <strong>'
+            + bestJ.pI+'/'+bestJ.pC+'/'+bestJ.pA
+            + '</strong> &middot; <strong>' + bestJ.squads + ' escouade'+(bestJ.squads>1?'s':'')
+            + '</strong> &middot; <strong>' + pctJ + '%</strong> des troupes');
+        }
+      }
+    }
+  } else if (capJ > 0) {
+    // Joiner-only mode
+    const bestJ = optimize(infTotal, cavTotal, arcTotal, capJ);
+    if (bestJ) {
+      applyRatio('j', bestJ);
+      if (bestJ.squads > 1) {
+        jTeams = bestJ.squads;
+        document.getElementById('j-teams-val').textContent = jTeams;
+      }
+      const pctJ = total > 0 ? Math.round(bestJ.totalUsed / total * 100) : 0;
+      msgLines.push('<strong style="color:var(--joiner)">Joiner</strong> : ratio <strong>'
+        + bestJ.pI+'/'+bestJ.pC+'/'+bestJ.pA
+        + '</strong> &middot; <strong>' + bestJ.squads + ' escouade'+(bestJ.squads>1?'s':'')
+        + '</strong> &middot; <strong>' + pctJ + '%</strong> des troupes');
+    }
+  }
+
+  const msg = document.getElementById('autofill-result');
+  msg.innerHTML = t().autoFillResult + '<br>' + msgLines.join('<br>');
+  msg.classList.add('show');
+
+  calcAll();
+}
+
 
 function calcAll() {
   const infT=parseInt(document.getElementById('inf').value)||0;
