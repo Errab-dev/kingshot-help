@@ -499,6 +499,8 @@ function setLang(l) {
 
 function setMode(mode) {
   currentMode = mode;
+  const maxTeams = mode === 'leader' ? 5 : 6;
+  if (jTeams > maxTeams) { jTeams = maxTeams; document.getElementById('j-teams-val').textContent = jTeams; }
   const ls = document.getElementById('leader-section');
   const bl = document.getElementById('btn-mode-leader');
   const bj = document.getElementById('btn-mode-joiner');
@@ -563,7 +565,8 @@ function updateActivePreset(p, i, c, a) {
 }
 
 function changeTeams(delta) {
-  jTeams = Math.max(1, Math.min(20, jTeams+delta));
+  const maxTeams = currentMode === 'leader' ? 5 : 6;
+  jTeams = Math.max(1, Math.min(maxTeams, jTeams+delta));
   document.getElementById('j-teams-val').textContent = jTeams;
   calcAll();
 }
