@@ -589,25 +589,20 @@ function computeAndRender(pfx, cap, infA, cavA, arcA, vals, teams) {
   const rI=vals.inf/sum, rC=vals.cav/sum;
   const idealI=Math.round(cap*rI), idealC=Math.round(cap*rC), idealA=cap-idealI-idealC;
 
-  let sqI=Math.min(idealI, Math.floor(infA/teams));
-  let sqC=Math.min(idealC, Math.floor(cavA/teams));
-  let sqA=Math.min(idealA, Math.floor(arcA/teams));
+  // Step 1: equal split based on user ratio, capped by stock
+  let sqI = Math.min(idealI, Math.floor(infA / teams));
+  let sqC = Math.min(idealC, Math.floor(cavA / teams));
+  let sqA = Math.min(idealA, Math.floor(arcA / teams));
 
-  // fill with archers first
-  { const extra=Math.max(0,Math.floor((arcA-sqA*teams)/teams)); sqA+=Math.min(cap-sqI-sqC-sqA, extra); }
-  // then inf+cav equally
-  { let left=cap-sqI-sqC-sqA;
-    if(left>0){
-      const eI=Math.max(0,Math.floor((infA-sqI*teams)/teams));
-      const eC=Math.max(0,Math.floor((cavA-sqC*teams)/teams));
-      let bi=0,bc=0;
-      while(left>0&&(eI-bi>0||eC-bc>0)){
-        if(eI-bi>0&&left>0){bi++;left--;}
-        if(eC-bc>0&&left>0){bc++;left--;}
-      }
-      sqI+=bi; sqC+=bc;
-    }
-  }
+  // Step 2: fill remaining slots — arc > cav > inf
+  { const extra = Math.max(0, Math.floor((arcA - sqA*teams) / teams));
+    sqA += Math.min(cap - sqI - sqC - sqA, extra); }
+  { const extra = Math.max(0, Math.floor((cavA - sqC*teams) / teams));
+    const left = cap - sqI - sqC - sqA;
+    if (left > 0) sqC += Math.min(left, extra); }
+  { const extra = Math.max(0, Math.floor((infA - sqI*teams) / teams));
+    const left = cap - sqI - sqC - sqA;
+    if (left > 0) sqI += Math.min(left, extra); }
 
   const totI=sqI*teams, totC=sqC*teams, totA=sqA*teams, totU=totI+totC+totA;
 
@@ -746,117 +741,134 @@ function autoFill() {
   const arcTotal = parseInt(document.getElementById('arc').value)||0;
   const capL = parseInt(document.getElementById('cap-l').value)||0;
   const capJ = parseInt(document.getElementById('cap-j').value)||0;
+  const msg = document.getElementById('autofill-result');
 
   if ((!capL && !capJ) || (!infTotal && !cavTotal && !arcTotal)) {
-    const msg = document.getElementById('autofill-result');
-    msg.textContent = t().autoFillNoCap;
-    msg.classList.add('show');
-    return;
+    msg.textContent = 'Renseigne la capacite descouade et tes troupes en premier';
+    msg.classList.add('show'); return;
   }
 
-  // ── Core optimizer: given stock + cap, find best ratio ──
-  function optimize(inf, cav, arc, cap) {
+  const maxJoiners = currentMode === 'leader' ? 5 : 6;
+
+  // ── Real bear damage formula (from kingshotguides.com) ──
+  // damage = sqrt(n * 5000) * (base_atk * 0.125) / 8.333 / 100 * bonus * 10 rounds
+  // base_atk: arc=974, cav=730, inf=243 | bonus: arc=1.10, rest=1.0
+  const ATK = {arc:974, cav:730, inf:243};
+  const BONUS = {arc:1.10, cav:1.0, inf:1.0};
+  const BEAR_DEF = 8.33333, ARMY_MIN = 5000, ROUNDS = 10;
+
+  function damageScore(nI, nC, nA) {
+    let s = 0;
+    [[nI,'inf'],[nC,'cav'],[nA,'arc']].forEach(([n,t]) => {
+      if (n <= 0) return;
+      const atk = ATK[t] * 0.125;
+      const army = Math.sqrt(n * ARMY_MIN);
+      s += army * atk / BEAR_DEF / 100 * BONUS[t] * ROUNDS;
+    });
+    return s;
+  }
+
+  function sqOf(pI, pC, cap) {
+    const sqI = Math.round(cap * pI / 100);
+    const sqC = Math.round(cap * pC / 100);
+    return { sqI, sqC, sqA: cap - sqI - sqC };
+  }
+
+  // ── Optimize: find ratio+squads combo with max total damage score ──
+  function optimize(inf, cav, arc, cap, maxSq, minArcPct) {
+    if (minArcPct === undefined) minArcPct = 20;
     if (!cap || (!inf && !cav && !arc)) return null;
-    const MIN_INF_ABS = 5000;
     let best = null;
-
-    for (let pI = 1; pI <= 20; pI++) {
-      for (let pC = 1; pC <= 30; pC++) {
-        const pA = 100 - pI - pC;
-        if (pA < 50) continue;
-
-        const sqI = Math.round(cap * pI / 100);
-        const sqC = Math.round(cap * pC / 100);
-        const sqA = cap - sqI - sqC;
-
-        if (sqI < MIN_INF_ABS) continue;
-        if (sqA <= 0 || sqC <= 0) continue;
-
-        const maxByI = Math.floor(inf / sqI);
-        const maxByC = Math.floor(cav / sqC);
-        const maxByA = Math.floor(arc / sqA);
-        const squads = Math.max(1, Math.min(maxByI, maxByC, maxByA));
-        const canFull = (maxByI >= 1 && maxByC >= 1 && maxByA >= 1);
-
-        const arcUsed = canFull ? sqA * squads : Math.min(sqA, arc);
-        const totalUsed = canFull
-          ? (sqI + sqC + sqA) * squads
-          : Math.min(sqI, inf) + Math.min(sqC, cav) + Math.min(sqA, arc);
-
-        const score = canFull ? squads * 1e9 + arcUsed : arcUsed;
-
-        if (!best || score > best.score) {
-          best = { pI, pC, pA, sqI, sqC, sqA, squads: canFull ? squads : 1, canFull, score, totalUsed };
+    for (let teams = 1; teams <= maxSq; teams++) {
+      for (let pI = 1; pI <= 30; pI++) {
+        for (let pC = 1; pC <= 50; pC++) {
+          const pA = 100 - pI - pC;
+          if (pA < minArcPct) continue;
+          const { sqI, sqC, sqA } = sqOf(pI, pC, cap);
+          if (sqI < 5000 || sqC < 1 || sqA < 1) continue;
+          if (sqI*teams > inf || sqC*teams > cav || sqA*teams > arc) continue;
+          const score = damageScore(sqI, sqC, sqA) * teams;
+          if (!best || score > best.score) {
+            best = { pI, pC, pA, sqI, sqC, sqA, teams, score,
+              totalUsed: (sqI+sqC+sqA)*teams };
+          }
         }
       }
     }
-    return best || { pI:1, pC:10, pA:89, sqI:Math.round(cap*0.01), sqC:Math.round(cap*0.1), sqA:cap-Math.round(cap*0.01)-Math.round(cap*0.1), squads:1, canFull:false, totalUsed:0, score:0 };
+    return best;
   }
 
-  function applyRatio(pfx, best) {
-    document.getElementById(pfx+'-pct-inf').value = best.pI;
-    document.getElementById(pfx+'-pct-cav').value = best.pC;
-    document.getElementById(pfx+'-pct-arc').value = best.pA;
-    updateRatioBars(pfx, {inf:best.pI, cav:best.pC, arc:best.pA});
-    updateActivePreset(pfx, best.pI, best.pC, best.pA);
+  function applyRatio(pfx, pI, pC, pA) {
+    document.getElementById(pfx+'-pct-inf').value = pI;
+    document.getElementById(pfx+'-pct-cav').value = pC;
+    document.getElementById(pfx+'-pct-arc').value = pA;
+    updateRatioBars(pfx, {inf:pI, cav:pC, arc:pA});
+    updateActivePreset(pfx, pI, pC, pA);
   }
 
   const total = infTotal + cavTotal + arcTotal;
-  let msgLines = [];
+  const lines = [];
 
-  // ── STEP 1 : optimize leader (always 1 squad) ──
-  if (currentMode === 'leader' && capL > 0) {
-    const bestL = optimize(infTotal, cavTotal, arcTotal, capL);
-    if (bestL) {
-      applyRatio('l', bestL);
-      const pctL = total > 0 ? Math.round(bestL.totalUsed / total * 100) : 0;
-      msgLines.push('<strong style="color:var(--leader)">Leader</strong> : ratio <strong>'
-        + bestL.pI+'/'+bestL.pC+'/'+bestL.pA
-        + '</strong> &middot; <strong>' + pctL + '%</strong> des troupes');
-
-      // ── STEP 2 : remaining stock for joiner ──
-      if (capJ > 0) {
-        const infRem = Math.max(0, infTotal - bestL.sqI);
-        const cavRem = Math.max(0, cavTotal - bestL.sqC);
-        const arcRem = Math.max(0, arcTotal - bestL.sqA);
-        const remTotal = infRem + cavRem + arcRem;
-
-        const bestJ = optimize(infRem, cavRem, arcRem, capJ);
-        if (bestJ) {
-          applyRatio('j', bestJ);
-          if (bestJ.squads > 1) {
-            jTeams = bestJ.squads;
-            document.getElementById('j-teams-val').textContent = jTeams;
-          }
-          const pctJ = total > 0 ? Math.round(bestJ.totalUsed / total * 100) : 0;
-          msgLines.push('<strong style="color:var(--joiner)">Joiner</strong> : ratio <strong>'
-            + bestJ.pI+'/'+bestJ.pC+'/'+bestJ.pA
-            + '</strong> &middot; <strong>' + bestJ.squads + ' escouade'+(bestJ.squads>1?'s':'')
-            + '</strong> &middot; <strong>' + pctJ + '%</strong> des troupes');
+  if (currentMode === 'leader' && capL > 0 && capJ > 0) {
+    // Test all leader×joiner combinations globally
+    let bestScore = -1, bestResult = null;
+    for (let pLI = 1; pLI <= 30; pLI++) {
+      for (let pLC = 1; pLC <= 50; pLC++) {
+        const pLA = 100 - pLI - pLC;
+        if (pLA < 20) continue;
+        const L = sqOf(pLI, pLC, capL);
+        if (L.sqI < 5000 || L.sqC < 1 || L.sqA < 1) continue;
+        if (pLA < 50) continue; // Leader must have at least 50% archers for max damage
+        if (L.sqI > infTotal || L.sqC > cavTotal || L.sqA > arcTotal) continue;
+        const iR = infTotal - L.sqI, cR = cavTotal - L.sqC, aR = arcTotal - L.sqA;
+        const bestJ = optimize(iR, cR, aR, capJ, maxJoiners);
+        if (!bestJ) continue;
+        const score = damageScore(L.sqI, L.sqC, L.sqA) + damageScore(bestJ.sqI, bestJ.sqC, bestJ.sqA) * bestJ.teams;
+        if (score > bestScore) {
+          bestScore = score;
+          bestResult = { pLI, pLC, pLA, L, bestJ };
         }
       }
     }
+    if (bestResult) {
+      applyRatio('l', bestResult.pLI, bestResult.pLC, bestResult.pLA);
+      lines.push('<strong style="color:var(--leader)">Leader</strong> : <strong>'
+        + bestResult.pLI+'/'+bestResult.pLC+'/'+bestResult.pLA + '</strong>');
+      const J = bestResult.bestJ;
+      applyRatio('j', J.pI, J.pC, J.pA);
+      jTeams = J.teams;
+      document.getElementById('j-teams-val').textContent = jTeams;
+      lines.push('<strong style="color:var(--joiner)">Joiner</strong> : <strong>'
+        + J.pI+'/'+J.pC+'/'+J.pA + '</strong> &middot; <strong>'
+        + jTeams + ' escouade'+(jTeams>1?'s':'') + '</strong>');
+    }
+  } else if (currentMode === 'leader' && capL > 0) {
+    const bestL = optimize(infTotal, cavTotal, arcTotal, capL, 1, 50);
+    if (bestL) {
+      applyRatio('l', bestL.pI, bestL.pC, bestL.pA);
+      lines.push('<strong style="color:var(--leader)">Leader</strong> : <strong>'
+        + bestL.pI+'/'+bestL.pC+'/'+bestL.pA + '</strong>');
+    }
   } else if (capJ > 0) {
-    // Joiner-only mode
-    const bestJ = optimize(infTotal, cavTotal, arcTotal, capJ);
+    const bestJ = optimize(infTotal, cavTotal, arcTotal, capJ, maxJoiners);
     if (bestJ) {
-      applyRatio('j', bestJ);
-      if (bestJ.squads > 1) {
-        jTeams = bestJ.squads;
-        document.getElementById('j-teams-val').textContent = jTeams;
-      }
-      const pctJ = total > 0 ? Math.round(bestJ.totalUsed / total * 100) : 0;
-      msgLines.push('<strong style="color:var(--joiner)">Joiner</strong> : ratio <strong>'
-        + bestJ.pI+'/'+bestJ.pC+'/'+bestJ.pA
-        + '</strong> &middot; <strong>' + bestJ.squads + ' escouade'+(bestJ.squads>1?'s':'')
-        + '</strong> &middot; <strong>' + pctJ + '%</strong> des troupes');
+      applyRatio('j', bestJ.pI, bestJ.pC, bestJ.pA);
+      jTeams = bestJ.teams;
+      document.getElementById('j-teams-val').textContent = jTeams;
+      lines.push('<strong style="color:var(--joiner)">Joiner</strong> : <strong>'
+        + bestJ.pI+'/'+bestJ.pC+'/'+bestJ.pA + '</strong> &middot; <strong>'
+        + jTeams + ' escouade'+(jTeams>1?'s':'') + '</strong>');
     }
   }
 
-  const msg = document.getElementById('autofill-result');
-  msg.innerHTML = t().autoFillResult + '<br>' + msgLines.join('<br>');
-  msg.classList.add('show');
+  const pctUsed = total > 0 ? Math.round(
+    ((parseInt(document.getElementById('l-pct-inf').value)||0)/100*capL
+    + (parseInt(document.getElementById('l-pct-arc').value)||0)/100*capL
+    + jTeams*capJ) / total * 100) : 0;
 
+  msg.innerHTML = '✅ Optimisation appliquée &middot; <strong>' + pctUsed + '%</strong> des troupes<br>'
+    + '<span style="color:var(--text)">' + lines.join(' &middot; ') + '</span>';
+  msg.classList.add('show');
   calcAll();
 }
 
